@@ -177,7 +177,9 @@ def load_data():
     
     return df, df_display
 
-df, df_display = load_data()
+# Show loading spinner
+with st.spinner("🚀 Loading LaptopFinder AI..."):
+    df, df_display = load_data()
 
 # Train KNN model
 @st.cache_resource
@@ -420,103 +422,58 @@ elif page == "📊 Analytics":
     </div>
     """, unsafe_allow_html=True)
     
-    # Price distribution
+    # Use Streamlit native charts for better performance
     st.markdown("### 💰 Price Distribution")
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.hist(df['Price'], bins=30, color='#667eea', edgecolor='black', alpha=0.7)
-    ax.set_xlabel('Price (₹)', fontsize=12)
-    ax.set_ylabel('Frequency', fontsize=12)
-    ax.set_title('Laptop Price Distribution', fontsize=14, fontweight='bold')
-    ax.grid(axis='y', alpha=0.3)
-    st.pyplot(fig)
-    plt.close()
+    st.bar_chart(df['Price'].value_counts().sort_index().head(30))
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # RAM distribution
         st.markdown("### 💾 RAM Distribution")
         ram_counts = df['Ram_GB'].value_counts().sort_index()
-        
-        fig, ax = plt.subplots(figsize=(8, 8))
-        colors = sns.color_palette("Purples_r", len(ram_counts))
-        wedges, texts, autotexts = ax.pie(ram_counts.values, 
-                                           labels=[f'{x} GB' for x in ram_counts.index],
-                                           autopct='%1.1f%%',
-                                           colors=colors,
-                                           startangle=90)
-        ax.set_title('RAM Configuration', fontsize=14, fontweight='bold')
-        for autotext in autotexts:
-            autotext.set_color('white')
-            autotext.set_fontweight('bold')
-        st.pyplot(fig)
-        plt.close()
+        st.bar_chart(ram_counts)
     
     with col2:
-        # Graphics distribution
         st.markdown("### 🎮 Graphics Card Type")
-        graphics_counts = df['Graphics_Flag'].value_counts()
-        
-        fig, ax = plt.subplots(figsize=(8, 8))
-        colors = ['#FFA07A', '#667eea']
-        wedges, texts, autotexts = ax.pie(graphics_counts.values, 
-                                           labels=['Integrated', 'Dedicated'],
-                                           autopct='%1.1f%%',
-                                           colors=colors,
-                                           startangle=90)
-        ax.set_title('Graphics Card Distribution', fontsize=14, fontweight='bold')
-        for autotext in autotexts:
-            autotext.set_color('white')
-            autotext.set_fontweight('bold')
-        st.pyplot(fig)
-        plt.close()
+        graphics_data = pd.DataFrame({
+            'Type': ['Integrated', 'Dedicated'],
+            'Count': [
+                len(df[df['Graphics_Flag'] == 0]),
+                len(df[df['Graphics_Flag'] == 1])
+            ]
+        })
+        st.bar_chart(graphics_data.set_index('Type'))
     
-    # Price vs Rating
+    # Price vs Rating scatter (using matplotlib but cached)
     st.markdown("### 📈 Price vs Rating Analysis")
-    fig, ax = plt.subplots(figsize=(12, 6))
     
-    integrated = df[df['Graphics_Flag'] == 0]
-    dedicated = df[df['Graphics_Flag'] == 1]
+    @st.cache_data
+    def create_scatter_plot():
+        fig, ax = plt.subplots(figsize=(10, 5))
+        integrated = df[df['Graphics_Flag'] == 0]
+        dedicated = df[df['Graphics_Flag'] == 1]
+        
+        ax.scatter(integrated['Price'], integrated['Rating'], 
+                  s=integrated['Ram_GB']*5, alpha=0.5, 
+                  c='#FFA07A', label='Integrated')
+        ax.scatter(dedicated['Price'], dedicated['Rating'], 
+                  s=dedicated['Ram_GB']*5, alpha=0.5, 
+                  c='#667eea', label='Dedicated')
+        
+        ax.set_xlabel('Price (₹)')
+        ax.set_ylabel('Rating')
+        ax.set_title('Price vs Rating (Bubble size = RAM)')
+        ax.legend()
+        ax.grid(alpha=0.3)
+        return fig
     
-    scatter1 = ax.scatter(integrated['Price'], integrated['Rating'], 
-                         s=integrated['Ram_GB']*10, alpha=0.6, 
-                         c='#FFA07A', label='Integrated', edgecolors='black', linewidth=0.5)
-    scatter2 = ax.scatter(dedicated['Price'], dedicated['Rating'], 
-                         s=dedicated['Ram_GB']*10, alpha=0.6, 
-                         c='#667eea', label='Dedicated', edgecolors='black', linewidth=0.5)
-    
-    ax.set_xlabel('Price (₹)', fontsize=12)
-    ax.set_ylabel('Rating', fontsize=12)
-    ax.set_title('Price vs Rating (Bubble size = RAM)', fontsize=14, fontweight='bold')
-    ax.legend(title='Graphics Type', fontsize=10)
-    ax.grid(alpha=0.3)
-    st.pyplot(fig)
-    plt.close()
+    st.pyplot(create_scatter_plot())
     
     # Top brands
     st.markdown("### 🏆 Top Laptop Brands")
     df_display['Brand'] = df_display['Model'].str.split().str[0]
     brand_counts = df_display['Brand'].value_counts().head(10)
-    
-    fig, ax = plt.subplots(figsize=(12, 6))
-    colors = sns.color_palette("Purples_r", len(brand_counts))
-    bars = ax.bar(brand_counts.index, brand_counts.values, color=colors, edgecolor='black')
-    ax.set_xlabel('Brand', fontsize=12)
-    ax.set_ylabel('Count', fontsize=12)
-    ax.set_title('Top 10 Laptop Brands', fontsize=14, fontweight='bold')
-    ax.grid(axis='y', alpha=0.3)
-    plt.xticks(rotation=45, ha='right')
-    
-    # Add value labels on bars
-    for bar in bars:
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height,
-                f'{int(height)}',
-                ha='center', va='bottom', fontweight='bold')
-    
-    plt.tight_layout()
-    st.pyplot(fig)
-    plt.close()
+    st.bar_chart(brand_counts)
     
     # Summary statistics
     st.markdown("### 📊 Summary Statistics")
