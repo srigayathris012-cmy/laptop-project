@@ -1,493 +1,347 @@
-import streamlit as st
+import gradio as gr
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import NearestNeighbors
-import matplotlib.pyplot as plt
-import seaborn as sns
+from datetime import datetime
 
-# Page configuration
-st.set_page_config(
-    page_title="LaptopFinder AI",
-    page_icon="💻",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Custom CSS for unique styling
-st.markdown("""
-<style>
-    /* Main theme colors */
-    :root {
-        --primary-color: #6C63FF;
-        --secondary-color: #4CAF50;
-        --background-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
-    
-    /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    /* Custom header */
-    .main-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        text-align: center;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-    }
-    
-    .main-header h1 {
-        color: white;
-        font-size: 3rem;
-        margin: 0;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-    }
-    
-    .main-header p {
-        color: #f0f0f0;
-        font-size: 1.2rem;
-        margin-top: 0.5rem;
-    }
-    
-    /* Card styling */
-    .laptop-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        margin-bottom: 1rem;
-        border-left: 5px solid #667eea;
-        transition: transform 0.3s ease;
-    }
-    
-    .laptop-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-    }
-    
-    /* Metric cards */
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-    }
-    
-    /* Search bar styling */
-    .stTextInput > div > div > input {
-        border-radius: 25px;
-        border: 2px solid #667eea;
-        padding: 0.75rem 1.5rem;
-        font-size: 1rem;
-    }
-    
-    /* Button styling */
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 25px;
-        padding: 0.75rem 2rem;
-        font-size: 1rem;
-        font-weight: bold;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        transition: all 0.3s ease;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-    }
-    
-    /* Sidebar styling */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
-    }
-    
-    [data-testid="stSidebar"] .element-container {
-        color: white;
-    }
-    
-    /* Price badge */
-    .price-badge {
-        background: #4CAF50;
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        font-weight: bold;
-        display: inline-block;
-        margin: 0.5rem 0;
-    }
-    
-    /* Spec badge */
-    .spec-badge {
-        background: #f0f0f0;
-        padding: 0.3rem 0.8rem;
-        border-radius: 15px;
-        font-size: 0.9rem;
-        display: inline-block;
-        margin: 0.2rem;
-    }
-    
-    /* Match score */
-    .match-score {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        font-weight: bold;
-        display: inline-block;
-        margin: 0.5rem 0;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Load and preprocess data
-@st.cache_data
+# Load data
 def load_data():
-    try:
-        df = pd.read_csv("laptop.csv")
-    except FileNotFoundError:
-        st.error("❌ Error: laptop.csv file not found! Please make sure the file is in the same directory as app.py")
-        st.stop()
-    
+    df = pd.read_csv("laptop.csv")
     if "Unnamed: 0" in df.columns:
         df.drop(columns=["Unnamed: 0"], inplace=True)
     
     df_display = df.copy()
-    
-    # Clean price
     df["Price"] = df["Price"].str.replace("₹", "").str.replace(",", "").astype(int)
     df["Ram_GB"] = df["Ram"].str.extract(r"(\d+)").fillna(0).astype(int)
     df["SSD_GB"] = df["SSD"].str.extract(r"(\d+)").fillna(0).astype(int)
     
-    # Graphics flag
     def graphics_flag(x):
-        if "Intel" in str(x) or "UHD" in str(x):
-            return 0
-        else:
-            return 1
+        return 0 if "Intel" in str(x) or "UHD" in str(x) else 1
     
     df["Graphics_Flag"] = df["Graphics"].apply(graphics_flag)
     df["Rating"] = df["Rating"].fillna(df["Rating"].mean())
     
     return df, df_display
 
-# Show loading spinner
-with st.spinner("🚀 Loading LaptopFinder AI..."):
-    df, df_display = load_data()
+df, df_display = load_data()
 
-# Train KNN model
-@st.cache_resource
+# Train model
 def train_model(df):
     X = df[["Price", "Ram_GB", "SSD_GB", "Rating", "Graphics_Flag"]]
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
-    
     knn = NearestNeighbors(n_neighbors=5, metric="euclidean")
     knn.fit(X_scaled)
-    
     return knn, scaler
 
 knn, scaler = train_model(df)
 
-# Sidebar navigation
-with st.sidebar:
-    st.markdown("<h1 style='color: white; text-align: center;'>💻 Navigation</h1>", unsafe_allow_html=True)
-    st.markdown("---")
+# Feature 1: Use Case Based Recommendations
+def recommend_by_usecase(use_case):
+    use_case_specs = {
+        "🎮 Gaming": {"min_ram": 16, "min_ssd": 512, "graphics": 1, "min_budget": 70000},
+        "💻 Programming": {"min_ram": 16, "min_ssd": 512, "graphics": 0, "min_budget": 50000},
+        "🎨 Video Editing": {"min_ram": 32, "min_ssd": 1024, "graphics": 1, "min_budget": 100000},
+        "📚 Student": {"min_ram": 8, "min_ssd": 256, "graphics": 0, "min_budget": 30000},
+        "💼 Business": {"min_ram": 8, "min_ssd": 512, "graphics": 0, "min_budget": 50000}
+    }
     
-    page = st.radio(
-        "",
-        ["🏠 Home", "🔍 Find Laptop", "📊 Analytics"],
-        label_visibility="collapsed"
-    )
+    specs = use_case_specs.get(use_case, use_case_specs["📚 Student"])
     
-    st.markdown("---")
-    st.markdown("<p style='color: white; text-align: center;'>Powered by AI 🤖</p>", unsafe_allow_html=True)
-    st.markdown("<p style='color: white; text-align: center; font-size: 0.8rem;'>Machine Learning Recommendation System</p>", unsafe_allow_html=True)
+    filtered = df[
+        (df["Ram_GB"] >= specs["min_ram"]) &
+        (df["SSD_GB"] >= specs["min_ssd"]) &
+        (df["Graphics_Flag"] == specs["graphics"]) &
+        (df["Price"] >= specs["min_budget"])
+    ].head(5)
+    
+    if len(filtered) == 0:
+        return "❌ No laptops found matching these criteria. Try different settings."
+    
+    results = f"## 🎯 Top Laptops for {use_case}\n\n"
+    for idx, row in filtered.iterrows():
+        results += f"### {df_display.iloc[idx]['Model']}\n"
+        results += f"💰 {df_display.iloc[idx]['Price']} | "
+        results += f"💾 {df_display.iloc[idx]['Ram']} | "
+        results += f"💿 {df_display.iloc[idx]['SSD']}\n"
+        results += f"🎮 {df_display.iloc[idx]['Graphics']} | "
+        results += f"⭐ {df_display.iloc[idx]['Rating']}\n\n"
+    
+    return results
 
-# Page: Home
-if page == "🏠 Home":
-    # Header
-    st.markdown("""
-    <div class="main-header">
-        <h1>💻 LaptopFinder AI</h1>
-        <p>Find Your Perfect Laptop with Machine Learning</p>
-    </div>
-    """, unsafe_allow_html=True)
+# Feature 2: Compare Laptops
+def compare_laptops(laptop1_idx, laptop2_idx):
+    if laptop1_idx == laptop2_idx:
+        return "⚠️ Please select different laptops to compare"
     
-    # Statistics
-    col1, col2, col3, col4 = st.columns(4)
+    l1 = df_display.iloc[laptop1_idx]
+    l2 = df_display.iloc[laptop2_idx]
     
-    with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h2>{len(df)}</h2>
-            <p>Laptops Available</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h2>₹{df['Price'].min():,}</h2>
-            <p>Starting Price</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h2>{df['Ram_GB'].max()} GB</h2>
-            <p>Max RAM</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        avg_rating = df['Rating'].mean()
-        st.markdown(f"""
-        <div class="metric-card">
-            <h2>{avg_rating:.1f}⭐</h2>
-            <p>Avg Rating</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Features
-    st.markdown("## ✨ Why Choose LaptopFinder AI?")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("""
-        <div style='background: #f8f9fa; padding: 2rem; border-radius: 10px; text-align: center; height: 200px;'>
-            <h2 style='color: #667eea;'>🎯</h2>
-            <h3>Personalized</h3>
-            <p>Get recommendations based on your specific needs and budget</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("""
-        <div style='background: #f8f9fa; padding: 2rem; border-radius: 10px; text-align: center; height: 200px;'>
-            <h2 style='color: #667eea;'>🤖</h2>
-            <h3>AI-Powered</h3>
-            <p>Machine learning algorithm finds the best matches for you</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown("""
-        <div style='background: #f8f9fa; padding: 2rem; border-radius: 10px; text-align: center; height: 200px;'>
-            <h2 style='color: #667eea;'>⚡</h2>
-            <h3>Fast & Easy</h3>
-            <p>Find your perfect laptop in seconds, not hours</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    
-    # How it works
-    st.markdown("## 🔧 How It Works")
-    
-    steps_col1, steps_col2, steps_col3 = st.columns(3)
-    
-    with steps_col1:
-        st.info("**Step 1: Set Preferences**\n\nTell us your budget, RAM, storage, and graphics needs")
-    
-    with steps_col2:
-        st.info("**Step 2: AI Analysis**\n\nOur algorithm analyzes thousands of laptops")
-    
-    with steps_col3:
-        st.info("**Step 3: Get Results**\n\nReceive top 5 personalized recommendations")
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Quick stats
-    st.markdown("## 📈 Quick Statistics")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.metric("Average Price", f"₹{df['Price'].mean():,.0f}", delta=None)
-        st.metric("Most Common RAM", f"{df['Ram_GB'].mode()[0]} GB", delta=None)
-    
-    with col2:
-        st.metric("Average Rating", f"{df['Rating'].mean():.1f}", delta=None)
-        dedicated_pct = (df['Graphics_Flag'].sum() / len(df)) * 100
-        st.metric("Dedicated Graphics", f"{dedicated_pct:.1f}%", delta=None)
+    comparison = f"""
+# 📊 Laptop Comparison
 
-# Page: Find Laptop
-elif page == "🔍 Find Laptop":
-    st.markdown("""
-    <div class="main-header">
-        <h1>🔍 Find Your Perfect Laptop</h1>
-        <p>Enter your preferences and let AI do the rest</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Search bar
-    search_query = st.text_input("🔎 Quick Search (Search by model name)", placeholder="e.g., HP Pavilion, Lenovo IdeaPad...")
-    
-    if search_query:
-        filtered = df_display[df_display['Model'].str.contains(search_query, case=False, na=False)]
-        st.success(f"Found {len(filtered)} laptops matching '{search_query}'")
-        
-        for idx, row in filtered.head(10).iterrows():
-            st.markdown(f"""
-            <div class="laptop-card">
-                <h3>{row['Model']}</h3>
-                <div class="price-badge">{row['Price']}</div>
-                <p>
-                    <span class="spec-badge">💾 {row['Ram']}</span>
-                    <span class="spec-badge">💿 {row['SSD']}</span>
-                    <span class="spec-badge">🎮 {row['Graphics']}</span>
-                    <span class="spec-badge">⭐ {row['Rating']}</span>
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # Recommendation System
-    st.markdown("## 🎯 AI-Powered Recommendations")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        budget = st.slider("💰 Budget (₹)", 
-                          min_value=int(df['Price'].min()), 
-                          max_value=int(df['Price'].max()), 
-                          value=60000, 
-                          step=5000)
-        
-        ram = st.selectbox("💾 RAM (GB)", [4, 8, 16, 32, 64], index=1)
-        
-        ssd = st.selectbox("💿 SSD Storage (GB)", [128, 256, 512, 1024, 2048], index=2)
-    
-    with col2:
-        rating = st.slider("⭐ Minimum Rating", 
-                          min_value=0, 
-                          max_value=100, 
-                          value=60, 
-                          step=5)
-        
-        graphics = st.radio("🎮 Graphics Card", 
-                           ["Integrated (Intel/UHD)", "Dedicated (NVIDIA/AMD)"],
-                           index=1)
-        
-        graphics_flag = 0 if graphics == "Integrated (Intel/UHD)" else 1
-    
-    if st.button("🚀 Find My Laptop", use_container_width=True):
-        with st.spinner("🔍 Analyzing laptops..."):
-            # Get recommendations
-            user_input = [[budget, ram, ssd, rating, graphics_flag]]
-            user_scaled = scaler.transform(user_input)
-            distances, indices = knn.kneighbors(user_scaled)
-            
-            recommended = df_display.iloc[indices[0]]
-            
-            st.markdown("### 🎉 Top 5 Recommendations for You")
-            
-            for i, (idx, row) in enumerate(recommended.iterrows(), 1):
-                match_score = max(0, 100 - (distances[0][i-1] * 10))
-                
-                st.markdown(f"""
-                <div class="laptop-card">
-                    <h3>#{i} {row['Model']}</h3>
-                    <div class="price-badge">{row['Price']}</div>
-                    <div class="match-score">Match Score: {match_score:.1f}%</div>
-                    <p>
-                        <span class="spec-badge">💾 {row['Ram']}</span>
-                        <span class="spec-badge">💿 {row['SSD']}</span>
-                        <span class="spec-badge">🎮 {row['Graphics']}</span>
-                        <span class="spec-badge">🖥️ {row['Display']}</span>
-                        <span class="spec-badge">⭐ {row['Rating']}</span>
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            st.success("✅ Recommendations generated successfully!")
+## 🔵 Laptop 1: {l1['Model']}
+- 💰 Price: {l1['Price']}
+- 💾 RAM: {l1['Ram']}
+- 💿 SSD: {l1['SSD']}
+- 🎮 Graphics: {l1['Graphics']}
+- ⭐ Rating: {l1['Rating']}
 
-# Page: Analytics
-elif page == "📊 Analytics":
-    st.markdown("""
-    <div class="main-header">
-        <h1>📊 Market Analytics</h1>
-        <p>Insights and trends from our laptop database</p>
-    </div>
-    """, unsafe_allow_html=True)
+## 🔴 Laptop 2: {l2['Model']}
+- 💰 Price: {l2['Price']}
+- 💾 RAM: {l2['Ram']}
+- 💿 SSD: {l2['SSD']}
+- 🎮 Graphics: {l2['Graphics']}
+- ⭐ Rating: {l2['Rating']}
+
+---
+
+## 🏆 Winner Analysis:
+
+"""
     
-    # Use Streamlit native charts for better performance
-    st.markdown("### 💰 Price Distribution")
-    st.bar_chart(df['Price'].value_counts().sort_index().head(30))
+    # Price comparison
+    price1 = int(l1['Price'].replace('₹', '').replace(',', ''))
+    price2 = int(l2['Price'].replace('₹', '').replace(',', ''))
     
-    col1, col2 = st.columns(2)
+    if price1 < price2:
+        comparison += f"💰 **Better Value:** Laptop 1 (₹{price2 - price1:,} cheaper)\n"
+    else:
+        comparison += f"💰 **Better Value:** Laptop 2 (₹{price1 - price2:,} cheaper)\n"
     
-    with col1:
-        st.markdown("### 💾 RAM Distribution")
-        ram_counts = df['Ram_GB'].value_counts().sort_index()
-        st.bar_chart(ram_counts)
+    # RAM comparison
+    ram1 = df.iloc[laptop1_idx]['Ram_GB']
+    ram2 = df.iloc[laptop2_idx]['Ram_GB']
     
-    with col2:
-        st.markdown("### 🎮 Graphics Card Type")
-        graphics_data = pd.DataFrame({
-            'Type': ['Integrated', 'Dedicated'],
-            'Count': [
-                len(df[df['Graphics_Flag'] == 0]),
-                len(df[df['Graphics_Flag'] == 1])
-            ]
-        })
-        st.bar_chart(graphics_data.set_index('Type'))
+    if ram1 > ram2:
+        comparison += f"💾 **More RAM:** Laptop 1 ({ram1} GB vs {ram2} GB)\n"
+    elif ram2 > ram1:
+        comparison += f"💾 **More RAM:** Laptop 2 ({ram2} GB vs {ram1} GB)\n"
+    else:
+        comparison += f"💾 **RAM:** Same ({ram1} GB)\n"
     
-    # Price vs Rating scatter (using matplotlib but cached)
-    st.markdown("### 📈 Price vs Rating Analysis")
+    # Rating comparison
+    if l1['Rating'] > l2['Rating']:
+        comparison += f"⭐ **Higher Rating:** Laptop 1 ({l1['Rating']} vs {l2['Rating']})\n"
+    elif l2['Rating'] > l1['Rating']:
+        comparison += f"⭐ **Higher Rating:** Laptop 2 ({l2['Rating']} vs {l1['Rating']})\n"
+    else:
+        comparison += f"⭐ **Rating:** Same ({l1['Rating']})\n"
     
-    @st.cache_data
-    def create_scatter_plot():
-        fig, ax = plt.subplots(figsize=(10, 5))
-        integrated = df[df['Graphics_Flag'] == 0]
-        dedicated = df[df['Graphics_Flag'] == 1]
+    return comparison
+
+# Feature 3: Budget Optimizer
+def optimize_budget(max_budget, priority):
+    filtered = df[df['Price'] <= max_budget].copy()
+    
+    if len(filtered) == 0:
+        return f"❌ No laptops found under ₹{max_budget:,}. Try increasing your budget."
+    
+    if priority == "Performance":
+        filtered = filtered.sort_values(['Ram_GB', 'SSD_GB', 'Graphics_Flag'], ascending=False)
+    elif priority == "Rating":
+        filtered = filtered.sort_values('Rating', ascending=False)
+    else:  # Value for Money
+        filtered['value_score'] = (filtered['Ram_GB'] + filtered['SSD_GB']/100 + filtered['Graphics_Flag']*10) / filtered['Price'] * 100000
+        filtered = filtered.sort_values('value_score', ascending=False)
+    
+    results = f"## 🎯 Best Laptops Under ₹{max_budget:,} (Priority: {priority})\n\n"
+    
+    for idx, row in filtered.head(5).iterrows():
+        results += f"### {df_display.iloc[idx]['Model']}\n"
+        results += f"💰 {df_display.iloc[idx]['Price']} | "
+        results += f"💾 {df_display.iloc[idx]['Ram']} | "
+        results += f"💿 {df_display.iloc[idx]['SSD']}\n"
+        results += f"🎮 {df_display.iloc[idx]['Graphics']} | "
+        results += f"⭐ {df_display.iloc[idx]['Rating']}\n\n"
+    
+    return results
+
+# Feature 4: AI Chatbot Style Recommendations
+def chatbot_recommend(question1, question2, question3):
+    # Gaming frequency
+    if question1 == "Daily":
+        min_graphics = 1
+        min_ram = 16
+    elif question1 == "Occasionally":
+        min_graphics = 1
+        min_ram = 8
+    else:
+        min_graphics = 0
+        min_ram = 8
+    
+    # Budget
+    if question2 == "Under ₹50k":
+        max_price = 50000
+    elif question2 == "₹50k - ₹80k":
+        max_price = 80000
+    else:
+        max_price = 150000
+    
+    # Storage needs
+    if question3 == "Heavy (1TB+)":
+        min_ssd = 1024
+    elif question3 == "Medium (512GB)":
+        min_ssd = 512
+    else:
+        min_ssd = 256
+    
+    filtered = df[
+        (df['Graphics_Flag'] >= min_graphics) &
+        (df['Ram_GB'] >= min_ram) &
+        (df['Price'] <= max_price) &
+        (df['SSD_GB'] >= min_ssd)
+    ].head(5)
+    
+    if len(filtered) == 0:
+        return "❌ No laptops match your preferences. Try adjusting your requirements."
+    
+    results = "## 🤖 AI Recommendations Based on Your Answers\n\n"
+    
+    for idx, row in filtered.iterrows():
+        results += f"### {df_display.iloc[idx]['Model']}\n"
+        results += f"💰 {df_display.iloc[idx]['Price']} | "
+        results += f"💾 {df_display.iloc[idx]['Ram']} | "
+        results += f"💿 {df_display.iloc[idx]['SSD']}\n"
+        results += f"🎮 {df_display.iloc[idx]['Graphics']} | "
+        results += f"⭐ {df_display.iloc[idx]['Rating']}\n\n"
+    
+    return results
+
+# Feature 5: Price Alert (Simulated)
+def create_price_alert(laptop_name, target_price):
+    matching = df_display[df_display['Model'].str.contains(laptop_name, case=False, na=False)]
+    
+    if len(matching) == 0:
+        return f"❌ No laptop found with name: {laptop_name}"
+    
+    laptop = matching.iloc[0]
+    current_price = int(laptop['Price'].replace('₹', '').replace(',', ''))
+    
+    if target_price >= current_price:
+        return f"✅ Good news! {laptop['Model']} is already at ₹{current_price:,}, which is below your target of ₹{target_price:,}!"
+    
+    return f"""
+🔔 Price Alert Created!
+
+**Laptop:** {laptop['Model']}
+**Current Price:** ₹{current_price:,}
+**Target Price:** ₹{target_price:,}
+**Difference:** ₹{current_price - target_price:,} above target
+
+💡 You'll be notified when the price drops! (Simulated - in real app, this would send email/SMS)
+"""
+
+# Create Gradio Interface
+with gr.Blocks(title="💻 Smart Laptop Finder", theme=gr.themes.Soft(primary_hue="purple")) as demo:
+    
+    gr.Markdown("""
+    # 💻 Smart Laptop Finder Pro
+    ### AI-Powered Laptop Recommendations with Advanced Features
+    """)
+    
+    with gr.Tabs():
         
-        ax.scatter(integrated['Price'], integrated['Rating'], 
-                  s=integrated['Ram_GB']*5, alpha=0.5, 
-                  c='#FFA07A', label='Integrated')
-        ax.scatter(dedicated['Price'], dedicated['Rating'], 
-                  s=dedicated['Ram_GB']*5, alpha=0.5, 
-                  c='#667eea', label='Dedicated')
+        # Tab 1: Use Case Recommendations
+        with gr.Tab("🎯 Find by Use Case"):
+            gr.Markdown("## Tell us what you need the laptop for:")
+            usecase_input = gr.Radio(
+                choices=["🎮 Gaming", "💻 Programming", "🎨 Video Editing", "📚 Student", "💼 Business"],
+                label="Select Your Primary Use Case",
+                value="📚 Student"
+            )
+            usecase_btn = gr.Button("🚀 Get Recommendations", variant="primary")
+            usecase_output = gr.Markdown()
+            
+            usecase_btn.click(recommend_by_usecase, inputs=usecase_input, outputs=usecase_output)
         
-        ax.set_xlabel('Price (₹)')
-        ax.set_ylabel('Rating')
-        ax.set_title('Price vs Rating (Bubble size = RAM)')
-        ax.legend()
-        ax.grid(alpha=0.3)
-        return fig
+        # Tab 2: Compare Laptops
+        with gr.Tab("⚖️ Compare Laptops"):
+            gr.Markdown("## Compare Two Laptops Side-by-Side")
+            
+            laptop_choices = [f"{i}: {model}" for i, model in enumerate(df_display['Model'].head(50))]
+            
+            with gr.Row():
+                laptop1 = gr.Dropdown(choices=list(range(50)), label="Select Laptop 1", value=0)
+                laptop2 = gr.Dropdown(choices=list(range(50)), label="Select Laptop 2", value=1)
+            
+            compare_btn = gr.Button("📊 Compare", variant="primary")
+            compare_output = gr.Markdown()
+            
+            compare_btn.click(compare_laptops, inputs=[laptop1, laptop2], outputs=compare_output)
+        
+        # Tab 3: Budget Optimizer
+        with gr.Tab("💰 Budget Optimizer"):
+            gr.Markdown("## Find the Best Laptop Within Your Budget")
+            
+            budget_input = gr.Slider(
+                minimum=20000,
+                maximum=200000,
+                value=60000,
+                step=5000,
+                label="Maximum Budget (₹)"
+            )
+            priority_input = gr.Radio(
+                choices=["Performance", "Rating", "Value for Money"],
+                label="What's most important to you?",
+                value="Value for Money"
+            )
+            
+            budget_btn = gr.Button("🔍 Find Best Options", variant="primary")
+            budget_output = gr.Markdown()
+            
+            budget_btn.click(optimize_budget, inputs=[budget_input, priority_input], outputs=budget_output)
+        
+        # Tab 4: AI Chatbot
+        with gr.Tab("🤖 AI Assistant"):
+            gr.Markdown("## Answer a Few Questions, Get Perfect Recommendations")
+            
+            q1 = gr.Radio(
+                choices=["Never", "Occasionally", "Daily"],
+                label="❓ How often will you game on this laptop?",
+                value="Occasionally"
+            )
+            q2 = gr.Radio(
+                choices=["Under ₹50k", "₹50k - ₹80k", "Above ₹80k"],
+                label="❓ What's your budget range?",
+                value="₹50k - ₹80k"
+            )
+            q3 = gr.Radio(
+                choices=["Light (256GB)", "Medium (512GB)", "Heavy (1TB+)"],
+                label="❓ How much storage do you need?",
+                value="Medium (512GB)"
+            )
+            
+            chatbot_btn = gr.Button("🎯 Get My Recommendations", variant="primary")
+            chatbot_output = gr.Markdown()
+            
+            chatbot_btn.click(chatbot_recommend, inputs=[q1, q2, q3], outputs=chatbot_output)
+        
+        # Tab 5: Price Alerts
+        with gr.Tab("🔔 Price Alerts"):
+            gr.Markdown("## Set Price Alerts for Your Favorite Laptops")
+            
+            alert_laptop = gr.Textbox(
+                label="Laptop Model Name",
+                placeholder="e.g., HP Pavilion, Dell Inspiron..."
+            )
+            alert_price = gr.Number(
+                label="Target Price (₹)",
+                value=50000
+            )
+            
+            alert_btn = gr.Button("🔔 Create Alert", variant="primary")
+            alert_output = gr.Markdown()
+            
+            alert_btn.click(create_price_alert, inputs=[alert_laptop, alert_price], outputs=alert_output)
     
-    st.pyplot(create_scatter_plot())
+    gr.Markdown("""
+    ---
+    💡 **Pro Features:** Use Case Matching | Side-by-Side Comparison | Budget Optimization | AI Assistant | Price Alerts
     
-    # Top brands
-    st.markdown("### 🏆 Top Laptop Brands")
-    df_display['Brand'] = df_display['Model'].str.split().str[0]
-    brand_counts = df_display['Brand'].value_counts().head(10)
-    st.bar_chart(brand_counts)
-    
-    # Summary statistics
-    st.markdown("### 📊 Summary Statistics")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.info(f"**Total Laptops:** {len(df)}")
-        st.info(f"**Avg Price:** ₹{df['Price'].mean():,.0f}")
-    
-    with col2:
-        st.info(f"**Price Range:** ₹{df['Price'].min():,} - ₹{df['Price'].max():,}")
-        st.info(f"**Avg Rating:** {df['Rating'].mean():.2f}")
-    
-    with col3:
-        st.info(f"**Most Common RAM:** {df['Ram_GB'].mode()[0]} GB")
-        st.info(f"**Most Common SSD:** {df['SSD_GB'].mode()[0]} GB")
+    🤖 Powered by Machine Learning | Built with Gradio
+    """)
+
+if __name__ == "__main__":
+    demo.launch(share=True)
